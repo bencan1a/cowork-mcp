@@ -120,6 +120,10 @@ files = ["server.py", "run_auth.py", "config.py", "auth", "graph"]
 exclude = ["venv/", "tests/"]
 
 [[tool.mypy.overrides]]
+module = "msal"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
