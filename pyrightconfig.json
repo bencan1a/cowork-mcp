@@ -1,22 +1,27 @@
 {
-  "include": ["src", "tests", "tools"],
+  "include": ["config.py", "server.py", "run_auth.py", "auth", "graph", "tests", "tools"],
   "exclude": [
     "**/node_modules",
     "**/__pycache__",
     "**/.*",
-    "venv"
+    "venv",
+    "src"
   ],
   "typeCheckingMode": "basic",
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,
-  "pythonVersion": "3.10",
+  "pythonVersion": "3.11",
   "pythonPlatform": "Linux",
+  "venvPath": ".",
+  "venv": "venv",
   "executionEnvironments": [
     {
-      "root": "src"
+      "root": ".",
+      "extraPaths": ["."]
     },
     {
       "root": "tests",
+      "extraPaths": ["."],
       "reportMissingTypeStubs": false,
       "reportUnknownParameterType": false,
       "reportUnknownArgumentType": false,
