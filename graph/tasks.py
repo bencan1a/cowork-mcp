@@ -67,7 +67,7 @@ async def _resolve_list_id(gc: GraphClient, list_id: str | None) -> str:
     first = result.value[0]
     if first.id is None:
         raise RuntimeError("Default todo list has no ID")
-    return first.id
+    return str(first.id)
 
 
 # ---------------------------------------------------------------------------
