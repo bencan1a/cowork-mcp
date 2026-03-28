@@ -10,23 +10,13 @@
   "typeCheckingMode": "basic",
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,
+  "reportUnknownParameterType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownVariableType": false,
   "pythonVersion": "3.11",
-  "pythonPlatform": "Linux",
+  "pythonPlatform": "Windows",
   "venvPath": ".",
   "venv": "venv",
-  "executionEnvironments": [
-    {
-      "root": ".",
-      "extraPaths": ["."]
-    },
-    {
-      "root": "tests",
-      "extraPaths": ["."],
-      "reportMissingTypeStubs": false,
-      "reportUnknownParameterType": false,
-      "reportUnknownArgumentType": false,
-      "reportUnknownMemberType": false,
-      "reportUnknownVariableType": false
-    }
-  ]
+  "extraPaths": ["."]
 }
