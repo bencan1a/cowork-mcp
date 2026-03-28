@@ -1,6 +1,6 @@
 {
   "project_name": "outlook-mcp",
-  "description": "Self-hosted Python MCP server providing Claude with read/write access to a personal Outlook account via Microsoft Graph API",
+  "description": "Self-hosted Python MCP server providing Claude with read/write access to a personal Outlook account via Microsoft Graph API. Runs on Ubuntu behind a Cloudflare Tunnel, accessible over HTTPS from any Claude client.",
   "python_version": ">=3.11",
   "primary_tools": {
     "package_manager": "pip",
@@ -13,15 +13,26 @@
     "graph_client": "msgraph-sdk",
     "auth": "msal"
   },
+  "dependencies": {
+    "fastmcp": ">=2.0",
+    "msal": ">=1.28",
+    "msgraph-sdk": ">=1.0",
+    "cryptography": ">=42.0",
+    "pydantic": ">=2.0",
+    "pydantic-settings": ">=2.0",
+    "uvicorn": ">=0.29",
+    "httpx": ">=0.27",
+    "python-dotenv": ">=1.0"
+  },
   "folder_structure": {
-    "auth/": "OAuth flow and token storage",
-    "graph/": "Microsoft Graph API client and domain operations",
-    "tests/": "Test files",
+    "auth/": "OAuth flow (oauth_flow.py) and encrypted token storage (token_store.py)",
+    "graph/": "Microsoft Graph API client singleton (client.py) and domain operations: mail.py, calendar.py, contacts.py, tasks.py",
+    "tests/": "pytest test files",
     "docs/": "Permanent documentation",
-    "docs/_generated/": "Auto-generated documentation",
-    "agent-tmp/": "Temporary agent workspace (gitignored)",
-    "agent-projects/": "Active agent project folders",
-    "deploy/": "systemd unit and Cloudflare Tunnel setup"
+    "docs/_generated/": "Auto-generated documentation (do not edit manually)",
+    "agent-tmp/": "Temporary agent workspace (gitignored, auto-deleted after 7 days)",
+    "agent-projects/": "Active agent project folders with plan.md files",
+    "deploy/": "systemd unit file (outlook-mcp.service) and Cloudflare Tunnel setup guide"
   },
   "quality_standards": {
     "test_coverage": ">80%",
