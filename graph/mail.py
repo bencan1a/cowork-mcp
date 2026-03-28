@@ -30,6 +30,9 @@ from msgraph.generated.users.item.messages.item.reply.reply_post_request_body im
 from msgraph.generated.users.item.messages.item.reply_all.reply_all_post_request_body import (
     ReplyAllPostRequestBody,
 )
+from msgraph.generated.users.item.mail_folders.item.messages.messages_request_builder import (
+    MessagesRequestBuilder as FolderMessagesRequestBuilder,
+)
 from msgraph.generated.users.item.messages.messages_request_builder import (
     MessagesRequestBuilder,
 )
@@ -154,7 +157,7 @@ async def list_emails(
         # Resolve folder — use mailFolders/{folder}/messages for named folders
         messages_builder = gc.client.me.mail_folders.by_mail_folder_id(folder).messages
 
-        query_params = MessagesRequestBuilder.MessagesRequestBuilderGetQueryParameters(
+        query_params = FolderMessagesRequestBuilder.MessagesRequestBuilderGetQueryParameters(
             top=page_size,
             filter=filter_str,
             orderby=["receivedDateTime DESC"],
