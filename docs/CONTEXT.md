@@ -1,7 +1,7 @@
 # Project Documentation Context
 
-**Generated**: 2026-03-28T19:02:46.102004+00:00
-**Source SHA**: 30e803c21fafdee6eb63984009298c9c4989c5a2
+**Generated**: 2026-03-28T20:47:36.877890+00:00
+**Source SHA**: 0c6170c0d870b7a23e317e982551e3937653b35a
 **Max Size**: 150,000 characters
 
 This file provides comprehensive context about the project for AI agents and developers.
