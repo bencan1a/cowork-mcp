@@ -1,6 +1,6 @@
 # Agent Projects Directory
 
-This directory contains **ongoing project documentation** created by GitHub Copilot agents.
+This directory contains **ongoing project documentation** created by agents.
 
 ## Purpose
 
