@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from config import Settings
@@ -11,7 +13,7 @@ def settings() -> Settings:
     return Settings(
         azure_client_id="test-client-id",
         azure_client_secret="test-client-secret",
-        token_cache_path=".test_token_cache.json",
+        token_cache_path=Path(".test_token_cache.json"),
         token_encryption_key="test-key-placeholder",
         mcp_api_key="test-api-key",
     )
