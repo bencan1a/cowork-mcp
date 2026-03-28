@@ -124,6 +124,10 @@ module = "msal"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["msgraph.*", "kiota_abstractions.*", "kiota_http.*", "kiota_serialization_json.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
