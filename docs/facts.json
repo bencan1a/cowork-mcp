@@ -1,26 +1,27 @@
 {
-  "project_name": "python-template",
-  "description": "A well-configured Python project template optimized for GitHub Copilot",
-  "python_version": ">=3.10",
+  "project_name": "outlook-mcp",
+  "description": "Self-hosted Python MCP server providing Claude with read/write access to a personal Outlook account via Microsoft Graph API",
+  "python_version": ">=3.11",
   "primary_tools": {
     "package_manager": "pip",
     "testing": "pytest",
     "linting": "ruff",
-    "formatting": "ruff + black",
+    "formatting": "ruff",
     "type_checking": "mypy",
     "security": "bandit",
-    "documentation": "sphinx + pdoc3"
+    "mcp_framework": "fastmcp",
+    "graph_client": "msgraph-sdk",
+    "auth": "msal"
   },
   "folder_structure": {
-    "src/": "Source code",
+    "auth/": "OAuth flow and token storage",
+    "graph/": "Microsoft Graph API client and domain operations",
     "tests/": "Test files",
     "docs/": "Permanent documentation",
     "docs/_generated/": "Auto-generated documentation",
     "agent-tmp/": "Temporary agent workspace (gitignored)",
-    "agent-plans/": "Ephemeral plan documents",
     "agent-projects/": "Active agent project folders",
-    "tools/": "Build and automation scripts",
-    ".github/": "GitHub configuration and workflows"
+    "deploy/": "systemd unit and Cloudflare Tunnel setup"
   },
   "quality_standards": {
     "test_coverage": ">80%",
@@ -33,8 +34,6 @@
     "source_of_truth": "docs/",
     "generated_docs": "docs/_generated/",
     "temporary_workspace": "agent-tmp/",
-    "ephemeral_plans": "agent-plans/",
-    "main_context": "docs/CONTEXT.md",
-    "automation": "GitHub Actions + tools/build_context.py"
+    "main_context": "docs/CONTEXT.md"
   }
 }

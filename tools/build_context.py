@@ -19,7 +19,7 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -109,7 +109,7 @@ def collect_active_plans() -> list[dict[str, Any]]:
         return []
 
     active_plans = []
-    cutoff_date = datetime.now(timezone.utc).date() - timedelta(days=PLANS_MAX_AGE_DAYS)
+    cutoff_date = datetime.now(UTC).date() - timedelta(days=PLANS_MAX_AGE_DAYS)
 
     for project_dir in AGENT_PLANS_DIR.iterdir():
         if not project_dir.is_dir():
@@ -199,7 +199,7 @@ def generate_plans_index(plans: list[dict[str, Any]]) -> str:
         return "# Active Plans\n\nNo active plans at this time.\n"
 
     lines = ["# Active Plans", ""]
-    lines.append(f"**Updated**: {datetime.now(timezone.utc).isoformat()}")
+    lines.append(f"**Updated**: {datetime.now(UTC).isoformat()}")
     lines.append(f"**Showing**: Plans with status=active created within {PLANS_MAX_AGE_DAYS} days")
     lines.append("")
 
@@ -227,7 +227,7 @@ def build_context_file(plans: list[dict[str, Any]], git_sha: str) -> str:
     # Header with metadata
     sections.append("# Project Documentation Context")
     sections.append("")
-    sections.append(f"**Generated**: {datetime.now(timezone.utc).isoformat()}")
+    sections.append(f"**Generated**: {datetime.now(UTC).isoformat()}")
     sections.append(f"**Source SHA**: {git_sha}")
     sections.append(f"**Max Size**: {CONTEXT_MAX_CHARS:,} characters")
     sections.append("")
@@ -306,7 +306,7 @@ def update_summary(git_sha: str) -> None:
     summary_file = DOCS_DIR / "SUMMARY.md"
 
     lines = ["# Documentation Summary", ""]
-    lines.append(f"**Last Updated**: {datetime.now(timezone.utc).isoformat()}")
+    lines.append(f"**Last Updated**: {datetime.now(UTC).isoformat()}")
     lines.append(f"**Source SHA**: {git_sha}")
     lines.append("")
     lines.append(
@@ -374,7 +374,7 @@ def update_changelog(git_sha: str, changes: list[str]) -> None:
     # Add new entry
     entry_lines = [
         "",
-        f"## Build at {datetime.now(timezone.utc).isoformat()}",
+        f"## Build at {datetime.now(UTC).isoformat()}",
         f"**Source SHA**: {git_sha}",
         "",
         "### Changes",
@@ -407,7 +407,7 @@ def clean_tmp_directory() -> int:
     if not AGENT_TMP_DIR.exists():
         return 0
 
-    cutoff_time = datetime.now(timezone.utc).timestamp() - (CLEAN_TMP_AGE_DAYS * 86400)
+    cutoff_time = datetime.now(UTC).timestamp() - (CLEAN_TMP_AGE_DAYS * 86400)
     removed_count = 0
 
     for item in AGENT_TMP_DIR.rglob("*"):

@@ -20,7 +20,7 @@ test-verbose:  ## Run tests with verbose output
 	pytest -v
 
 coverage:  ## Run tests with coverage report
-	pytest --cov=src --cov-report=html --cov-report=term
+	pytest --cov=. --cov-report=html --cov-report=term
 
 lint:  ## Run linting checks
 	ruff check .
@@ -32,14 +32,14 @@ format-check:  ## Check code formatting without making changes
 	ruff format --check .
 
 type-check:  ## Run type checking
-	mypy src/ .github/scripts/
+	mypy config.py auth/ graph/
 
 security:  ## Run security checks
-	bandit -r src/ .github/scripts/ -s B404,B603,B607
+	bandit -r config.py auth/ graph/ -s B404,B603,B607
 
 security-report:  ## Run security checks and generate JSON report
-	bandit -r src/ .github/scripts/ -f json -o bandit-report.json -s B404,B603,B607 || true
-	bandit -r src/ .github/scripts/ -s B404,B603,B607
+	bandit -r config.py auth/ graph/ -f json -o bandit-report.json -s B404,B603,B607 || true
+	bandit -r config.py auth/ graph/ -s B404,B603,B607
 	@echo "Security report generated: bandit-report.json"
 
 check-yaml:  ## Check YAML file syntax
@@ -51,9 +51,9 @@ check-all:  ## Run all checks (format, lint, type, security, test)
 	@echo "\nRunning lint check..."
 	@ruff check .
 	@echo "\nRunning type check..."
-	@mypy src/ .github/scripts/
+	@mypy config.py auth/ graph/
 	@echo "\nRunning security check..."
-	@bandit -r src/ .github/scripts/ -s B404,B603,B607
+	@bandit -r config.py auth/ graph/ -s B404,B603,B607
 	@echo "\nRunning tests..."
 	@pytest
 

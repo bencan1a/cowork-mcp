@@ -3,29 +3,35 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "python-template"
+name = "outlook-mcp"
 version = "0.1.0"
-description = "A well-configured Python project template optimized for GitHub Copilot"
+description = "Self-hosted Python MCP server providing Claude with read/write access to a personal Outlook account via Microsoft Graph API"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Your Name", email = "your.email@example.com"}
 ]
-keywords = ["template", "python", "copilot"]
+keywords = ["mcp", "outlook", "microsoft-graph", "fastmcp"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
 dependencies = [
-    "typing-extensions>=4.0.0",
+    "fastmcp>=2.0",
+    "msal>=1.28",
+    "msgraph-sdk>=1.0",
+    "cryptography>=42.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "uvicorn[standard]>=0.29",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -35,37 +41,29 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.23.0",
     "pytest-mock>=3.12.0",
+    "pytest-httpx>=0.30",
+    "respx>=0.20",
     "hypothesis>=6.98.0",
     "factory-boy>=3.3.0",
     "faker>=22.0.0",
-    
+
     # Code quality
     "ruff>=0.1.0",
-    "black>=24.0.0",
     "mypy>=1.8.0",
     "bandit>=1.7.0",
-    
+
     # Type stubs
     "types-requests",
-    
-    # Documentation
-    "sphinx>=7.2.0",
-    "sphinx-rtd-theme>=2.0.0",
-    
+
     # Development tools
     "ipython>=8.20.0",
     "ipdb>=0.13.13",
     "pre-commit>=3.6.0",
 ]
 
-[project.urls]
-Homepage = "https://github.com/bencan1a/python-template"
-Documentation = "https://github.com/bencan1a/python-template/blob/main/README.md"
-Repository = "https://github.com/bencan1a/python-template"
-Issues = "https://github.com/bencan1a/python-template/issues"
-
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+package-dir = {"" = "."}
+packages = ["auth", "graph"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -75,7 +73,7 @@ python_functions = ["test_*"]
 addopts = [
     "--strict-markers",
     "--strict-config",
-    "--cov=src",
+    "--cov=.",
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-report=xml",
@@ -87,11 +85,12 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["src"]
+source = ["auth", "graph", "config"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",
     "*/.venv/*",
+    "venv/*",
 ]
 
 [tool.coverage.report]
@@ -106,7 +105,7 @@ exclude_lines = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
@@ -117,6 +116,8 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 strict_equality = true
+files = ["server.py", "run_auth.py", "config.py", "auth", "graph"]
+exclude = ["venv/", "tests/"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
@@ -124,9 +125,9 @@ disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 100
-src = ["src", "tests", ".github/scripts"]
+src = ["."]
 
 [tool.ruff.lint]
 select = [
@@ -144,32 +145,29 @@ select = [
     "ERA", # eradicate
     "PL",  # pylint
     "RUF", # ruff-specific rules
+    "S",   # flake8-bandit (security)
 ]
 ignore = [
-    "E501",   # line too long, handled by formatter
+    "E501",    # line too long, handled by formatter
     "PLR0913", # too many arguments
     "PLR2004", # magic value used in comparison
     "PLR0915", # too many statements - acceptable for main/build functions
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*" = ["PLR2004", "S101", "ARG", "SIM102"]
+"tests/**/*" = ["PLR2004", "S101", "ARG", "SIM102", "S106", "B017"]
 "__init__.py" = ["F401"]
-"tools/**/*" = ["SIM102"]
+"tools/**/*" = ["S603", "S607", "SIM102", "UP017"]
+".github/scripts/**/*" = ["S603", "S607"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["python_template"]
+known-first-party = ["auth", "graph", "config"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
-
-[tool.black]
-line-length = 100
-target-version = ['py310', 'py311', 'py312']
-include = '\.pyi?$'
 
 [tool.bandit]
 exclude_dirs = ["tests", "venv", ".venv"]
