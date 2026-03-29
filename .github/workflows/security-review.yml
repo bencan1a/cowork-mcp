@@ -1,0 +1,52 @@
+name: Security Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  security-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate PR number
+        run: |
+          PR_NUMBER='${{ github.event.inputs.pr_number }}'
+          echo "$PR_NUMBER" | grep -qE '^[0-9]+$' || {
+            echo "Invalid PR number: $PR_NUMBER" >&2
+            exit 1
+          }
+          echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
+
+      - name: Run Security Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: 'claude[bot]'
+          prompt: |
+            Read and follow the instructions in `.claude/prompts/ci-security-review.md` to review PR #${{ env.PR_NUMBER }}.
+
+            Use `gh pr view ${{ env.PR_NUMBER }}` and `gh pr diff ${{ env.PR_NUMBER }}` to get the PR details.
+
+            After completing your review, post your findings using:
+            `gh pr review ${{ env.PR_NUMBER }} --comment --body "<your review markdown>"`
+
+            If there are CRITICAL findings, use `--request-changes` instead of `--comment`.
+          claude_args: '--allowed-tools Bash(gh pr:*)'

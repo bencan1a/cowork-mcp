@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "c:\\Git_Repos\\cowork-mcp\\.claude",
+      "c:\\Git_Repos\\cowork-mcp\\.claude\\commands"
+    ]
+  }
+}

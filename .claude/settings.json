@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(python *)",
+      "Bash(pip *)",
+      "Bash(uv *)",
+      "Bash(ruff *)",
+      "Bash(mypy *)",
+      "Bash(pyright *)",
+      "Bash(bandit *)",
+      "Bash(pytest *)",
+      "Bash(make *)",
+      "Bash(pre-commit *)",
+      "Bash(gh *)",
+      "Bash(uvicorn *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard *)",
+      "Bash(gh repo delete*)",
+      "Bash(gh secret *)",
+      "Bash(gh release delete*)",
+      "Bash(gh repo rename*)",
+      "Bash(gh repo transfer*)"
+    ]
+  }
+}

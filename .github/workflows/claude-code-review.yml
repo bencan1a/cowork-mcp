@@ -1,0 +1,47 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+
+jobs:
+  claude-review:
+    if: github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # Required to post review comments
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better context
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: 'claude[bot]'
+          prompt: |
+            Read and follow the instructions in `.claude/prompts/ci-pr-review.md` to review PR #${{ github.event.pull_request.number || github.event.inputs.pr_number }}.
+
+            Use `gh pr view ${{ github.event.pull_request.number || github.event.inputs.pr_number }}` and `gh pr diff ${{ github.event.pull_request.number || github.event.inputs.pr_number }}` to get the PR details.
+
+            After completing your review, post your findings using:
+            `gh pr review ${{ github.event.pull_request.number || github.event.inputs.pr_number }} --comment --body "<your review markdown>"`
+
+            If there are CRITICAL findings, use `--request-changes` instead of `--comment`.
+            If the review passes, use `--approve` instead of `--comment`.
+          # Enable GitHub CLI access
+          claude_args: '--allowed-tools Bash(gh pr:*)'
