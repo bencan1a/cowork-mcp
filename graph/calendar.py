@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from graph.errors import MAX_PAGES, clamp_limit, validate_graph_id, wrap_odata_error
 from kiota_abstractions.base_request_configuration import RequestConfiguration
 from msgraph.generated.models.attendee import Attendee
 from msgraph.generated.models.attendee_type import AttendeeType
@@ -29,6 +28,8 @@ from msgraph.generated.users.item.events.item.decline.decline_post_request_body 
 from msgraph.generated.users.item.events.item.tentatively_accept.tentatively_accept_post_request_body import (
     TentativelyAcceptPostRequestBody,
 )
+
+from graph.errors import MAX_PAGES, clamp_limit, validate_graph_id, wrap_odata_error
 
 if TYPE_CHECKING:
     from graph.client import GraphClient

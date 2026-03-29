@@ -127,7 +127,7 @@ def get_graph_client(settings: Settings | None = None) -> GraphClient:
         with _lock:
             if _instance is None:
                 if settings is None:
-                    settings = Settings()
+                    settings = Settings()  # type: ignore[call-arg]  # pydantic-settings loads from .env
                 _instance = GraphClient(settings)
                 logger.info("GraphClient initialised")
     return _instance

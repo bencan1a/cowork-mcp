@@ -150,6 +150,7 @@ class TestSearchEvents:
         event = _make_event(subject="Budget Review")
         response = MagicMock()
         response.value = [event]
+        response.odata_next_link = None
 
         gc.client.me.events.get = AsyncMock(return_value=response)
 

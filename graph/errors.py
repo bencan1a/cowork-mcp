@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import TYPE_CHECKING
 
-from msgraph.generated.models.o_data_errors.o_data_error import ODataError
+if TYPE_CHECKING:
+    from msgraph.generated.models.o_data_errors.o_data_error import ODataError
 
 logger = logging.getLogger(__name__)
 
