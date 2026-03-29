@@ -103,7 +103,7 @@ All code must pass `make check-all` before commit:
 2. **Linting**: `ruff check` (includes isort, bandit security rules, bugbear, etc.)
 3. **Type checking**: `mypy` (configured in `pyproject.toml`; `pyright` configured in `pyrightconfig.json` but not in `make check-all`)
 4. **Security**: `bandit` with `-s B404,B603,B607` skips
-5. **Tests**: all pass; `pytest-asyncio` with `asyncio_mode = "auto"`
+5. **Tests**: all pass; `pytest-asyncio` with `asyncio_mode = "auto"`. Coverage target: 80% (currently ~59%; `fail_under = 55` in `pyproject.toml` as a floor).
 
 Pre-commit hooks run: trailing-whitespace, end-of-file-fixer, check-yaml/toml/json, detect-private-key, ruff (lint+format), mypy, bandit.
 
