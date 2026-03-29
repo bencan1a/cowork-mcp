@@ -1,117 +1,136 @@
 # General Review: graph-client
 
-**Date**: 2026-03-29 | **Files reviewed**: 2 | **Reviewer**: principal-engineer
+**Date**: 2026-03-29
+**Files**: `graph/client.py`, `tests/test_graph_client.py`
+**Reviewer**: principal-engineer
 
 ## Summary
 
-The graph client module is well-structured, implements the singleton pattern correctly with thread safety, and cleanly integrates MSAL token management with the Kiota/msgraph SDK. The code is concise, well-typed, and follows the project's architectural guidelines. A few issues around a mutable default argument and test coverage gaps are worth addressing.
+`graph/client.py` is a well-structured, focused module that cleanly bridges MSAL token management with the msgraph-sdk Kiota layer. It follows the project's architectural rules faithfully: singleton factory, centralized Graph access, consumers authority delegated to TokenStore. The code is concise, readable, and appropriately documented. The test suite covers the public API adequately but has meaningful gaps around the token provider adapter and error paths.
 
 ## Findings
 
-### Architecture and Design
+### Strengths
 
-**Strengths:**
-
-- The `GraphClient` wrapper cleanly encapsulates the Kiota authentication plumbing, hiding the `GraphRequestAdapter` / `BaseBearerTokenAuthenticationProvider` chain behind a simple constructor. Consumers only interact with `GraphServiceClient` via the `.client` property.
-- The double-checked locking singleton in `get_graph_client()` is correctly implemented with `threading.Lock`. The `reset_graph_client()` escape hatch for testing is a pragmatic addition.
-- `build_scopes()` is a pure function with clear inputs/outputs -- easy to test and reason about. Using `SCOPE_MAP` as a declarative data structure rather than conditional logic is the right approach.
-- The `_TokenStoreAccessTokenProvider` adapter bridges the project's MSAL-based `TokenStore` to Kiota's `AccessTokenProvider` protocol cleanly, following the Adapter pattern.
-- `graph/__init__.py` is intentionally empty -- appropriate for a package that exposes its API through explicit imports from submodules.
-
-**Observations:**
-
-- The `store` property on `GraphClient` exposes the `TokenStore` directly. This is used by the domain modules (`graph/mail.py`, etc.) for nothing beyond Graph API calls -- good. However, exposing it publicly means external code could call `acquire_token_silent` directly, bypassing the Graph client. This is acceptable in a single-purpose server but worth noting.
-- `SCOPE_MAP` uses ReadWrite permissions for both read and write toggles (e.g., `scope_mail_read` maps to `Mail.ReadWrite`). This is a deliberate design choice documented by the toggle naming, but it means enabling read-only access still grants write permissions at the OAuth level. The actual restriction happens at the tool registration layer in `server.py`, which is the correct enforcement point.
+- **Clean Adapter pattern.** `_TokenStoreAccessTokenProvider` bridges the project's MSAL-based `TokenStore` to Kiota's `AccessTokenProvider` protocol without leaking abstractions. `GraphClient` then composes this into a full authentication chain. Consumers only see `GraphServiceClient` via the `.client` property.
+- **Declarative scope mapping.** `SCOPE_MAP` as a data structure plus `build_scopes()` as a pure function is the right approach -- easy to audit, easy to test, easy to extend when new scope toggles are added.
+- **Correct thread-safe singleton.** Double-checked locking with `threading.Lock` is implemented correctly. The `reset_graph_client()` test escape hatch is pragmatic and well-scoped.
+- **Justified suppressions.** Every `noqa` comment includes a reason, meeting the project's coding standard.
+- **Thorough scope tests.** `TestBuildScopes` covers composition, deduplication, sorting, the "all disabled" invariant, and individual toggle behavior. Good boundary coverage.
 
 ---
 
-### Findings by Priority
+### RED -- Critical
 
-#### RED -- Critical
-
-No critical issues found.
-
-#### YELLOW -- Important
-
-**B006 mutable default argument in `get_authorization_token`** (line 72)
+**1. Mutable default argument on protocol method (line 72)**
 
 ```python
 additional_authentication_context: dict[str, Any] = {},  # noqa: ARG002,B006
 ```
 
-The `# noqa: B006` suppression silences the "mutable default argument" warning. While this method never mutates the dict and the signature is dictated by the Kiota `AccessTokenProvider` protocol, the suppression deserves a justification comment explaining *why* it is safe. The existing comment (`required by protocol`) partially covers this but could be more explicit: "Protocol requires this signature; parameter is unused and never mutated."
+The `B006` suppression silences the mutable-default warning. While the parameter is unused and the signature is dictated by the Kiota `AccessTokenProvider` protocol, the mutable default `{}` is a genuine Python footgun. If any future Kiota middleware mutates this dict, the shared default object accumulates state across calls silently.
 
-Recommendation: Strengthen the justification or use `None` with a default inside the body if the protocol allows it.
-
-**`AllowedHostsValidator` initialized with empty list** (line 67)
-
-```python
-self._validator = AllowedHostsValidator([])
-```
-
-An empty allowed-hosts list means *all* hosts are allowed. This disables host validation for token injection, meaning the access token would be sent to any URL the SDK is configured to call. In practice, `GraphServiceClient` only calls `graph.microsoft.com`, so the blast radius is low. However, explicitly allowing `["graph.microsoft.com"]` would be a defense-in-depth measure that costs nothing.
-
-Recommendation: Change to `AllowedHostsValidator(["graph.microsoft.com"])`.
-
-#### GREEN -- Suggestions
-
-**`MailboxSettings.ReadWrite` in `BASE_SCOPES` is broad** (line 38)
-
-`MailboxSettings.ReadWrite` is always requested regardless of which toggles are enabled. If the server only needs to *read* mailbox settings (e.g., timezone detection for calendar operations), `MailboxSettings.Read` would follow least-privilege. Verify whether write access to mailbox settings is actually needed.
-
-**Singleton `_instance` is not typed as `Final`**
-
-The module-level `_instance` and `_lock` are implementation details. Consider prefixing `_lock` with a leading underscore (already done) and adding a brief docstring or comment to the singleton section clarifying that `get_graph_client` is the only public entry point.
-
-**`build_scopes` could use `frozenset` for `BASE_SCOPES`**
-
-`BASE_SCOPES` is a mutable `list` used as a constant. Using `tuple` or `frozenset` would communicate immutability intent. Minor, but consistent with treating it as configuration.
+**Recommendation:** If the protocol accepts `None`, change to `dict[str, Any] | None = None`. If the protocol strictly requires a `dict` default, keep the suppression but strengthen the justification to: `# Protocol requires dict default; param is unused and never mutated -- safe to suppress.`
 
 ---
+
+### YELLOW -- Important
+
+**2. No test coverage for `_TokenStoreAccessTokenProvider` (test gap)**
+
+The token provider is the critical integration seam between Kiota and MSAL. No test exercises `get_authorization_token()` or `get_allowed_hosts_validator()`. The singleton tests patch out `GraphClient.__init__` entirely, bypassing this code path.
+
+**Recommendation:** Add a focused unit test that constructs `_TokenStoreAccessTokenProvider` with a mocked `TokenStore`, calls `await get_authorization_token("https://graph.microsoft.com")`, and asserts it delegates to `acquire_token_silent` with the correct scopes, `client_id`, and `client_secret`. This is 15-20 lines of test code for a high-value path.
+
+**3. `AllowedHostsValidator([])` permits all hosts (line 67)**
+
+An empty allowed-hosts list means the provider will supply tokens to *any* host the SDK is configured to call. In practice `GraphServiceClient` only targets `graph.microsoft.com`, so the blast radius is low, but an explicit allowlist is a zero-cost defense-in-depth measure.
+
+**Recommendation:** Change to `AllowedHostsValidator(["graph.microsoft.com"])`.
+
+**4. Singleton silently ignores `settings` after first initialization**
+
+If `get_graph_client(settings=None)` runs first (the production path from `server.py` module-level import), and then `get_graph_client(explicit_settings)` is called later (e.g., in a test or a second initialization path), the explicit settings are silently discarded. This is a latent bug.
+
+**Recommendation:** Log a warning when a non-None `settings` is passed but the singleton already exists:
+
+```python
+if _instance is not None and settings is not None:
+    logger.warning(
+        "get_graph_client() called with explicit settings but singleton already exists; ignoring"
+    )
+```
+
+**5. No test for `get_graph_client(settings=None)` branch (test gap)**
+
+Line 129 constructs `Settings()` as a fallback when `settings` is `None`. This is the actual production code path, but it is untested. All singleton tests pass explicit settings.
+
+**Recommendation:** Add a test that calls `get_graph_client()` with `settings=None` (with appropriate env var mocking) and verifies the singleton is created.
+
+---
+
+### GREEN -- Suggestion
+
+**6. `getattr(settings, attr, False)` masks SCOPE_MAP key drift**
+
+If a scope toggle is renamed in `Settings` but not in `SCOPE_MAP`, `getattr` silently returns `False` instead of raising `AttributeError`. The scope would appear disabled with no error.
+
+**Recommendation:** Add a module-level or startup-time assertion that validates all `SCOPE_MAP` keys correspond to real `Settings` model fields:
+
+```python
+assert all(hasattr(Settings, k) for k in SCOPE_MAP), "SCOPE_MAP key mismatch with Settings"
+```
+
+Or add a test case for this invariant.
+
+**7. `BASE_SCOPES` is a mutable list used as a constant**
+
+`BASE_SCOPES: list[str]` can be accidentally mutated. Using `tuple[str, ...]` or `frozenset[str]` would communicate immutability intent at the type level.
+
+**8. `MailboxSettings.ReadWrite` in BASE_SCOPES may be over-scoped**
+
+This scope is always requested regardless of which toggles are enabled. If the server only reads mailbox settings (e.g., timezone detection), `MailboxSettings.Read` would follow least-privilege. Worth verifying whether write access is actually needed.
+
+**9. `GraphClient.store` property exposes internal state**
+
+The `.store` property gives callers direct access to `TokenStore`, meaning they could call `acquire_token_silent` outside the Graph client path. Acceptable for a single-purpose server, but worth noting as a coupling point.
+
+---
+
+### SOLID Assessment
+
+| Principle | Rating | Notes |
+|-----------|--------|-------|
+| Single Responsibility | Good | `GraphClient` owns construction, `build_scopes` owns scope resolution, `_TokenStoreAccessTokenProvider` owns the Kiota adapter contract. |
+| Open/Closed | Good | `SCOPE_MAP` is the extension point -- add an entry for a new toggle, no logic changes needed. |
+| Liskov Substitution | Good | `_TokenStoreAccessTokenProvider` correctly satisfies the `AccessTokenProvider` protocol. |
+| Interface Segregation | Good | `GraphClient` exposes only `.client` and `.store` -- minimal surface. |
+| Dependency Inversion | Acceptable | Depends on concrete `Settings` and `TokenStore`. Introducing protocols would be over-engineering for this project's scope. |
 
 ### Type Safety
 
-- Types are well-annotated throughout. `build_scopes` returns `list[str]`, `SCOPE_MAP` is fully typed, and `get_graph_client` correctly uses `Settings | None`.
-- The `getattr(settings, attr, False)` call in `build_scopes` bypasses static type checking -- if a scope toggle is renamed in `Settings` but not in `SCOPE_MAP`, the mismatch would silently default to `False`. This is a maintenance risk. Consider validating that all `SCOPE_MAP` keys exist as attributes on `Settings` at import time via an assertion or runtime check.
-
----
-
-### Test Coverage
-
-**Strengths:**
-
-- `TestBuildScopes` thoroughly covers the scope-building logic: base scopes always present, enabled scopes included, disabled scopes excluded, deduplication, and sort order.
-- `TestGraphClientSingleton` correctly verifies identity semantics (`is`), single-init guarantee, and reset behavior.
-- The `autouse` fixture for `reset_singleton` prevents test pollution between singleton tests.
-
-**Gaps:**
-
-- **No test for `_TokenStoreAccessTokenProvider.get_authorization_token`**. This is the critical adapter between Kiota and MSAL. A unit test should verify that calling `get_authorization_token` delegates to `TokenStore.acquire_token_silent` with the correct scopes, client ID, and client secret.
-- **No test for `_TokenStoreAccessTokenProvider.get_allowed_hosts_validator`**. Minor, but verifying the validator is returned would catch accidental breakage.
-- **No test for `get_graph_client` with `settings=None`**. The branch where `Settings()` is constructed by default (line 129) is untested. This is the production code path when called from `server.py`.
-- **No negative test for `get_graph_client` when `TokenStore` raises** (e.g., invalid encryption key). Understanding the failure mode matters for operational readiness.
-- **`GraphClient.__init__` is fully mocked in singleton tests**. This means the actual wiring of `TokenStore` -> `_TokenStoreAccessTokenProvider` -> `BaseBearerTokenAuthenticationProvider` -> `GraphRequestAdapter` -> `GraphServiceClient` is never exercised in tests. An integration-style test (even with mocked externals) that instantiates a real `GraphClient` and verifies `.client` is a `GraphServiceClient` would add confidence.
-
----
-
-### SOLID Principles
-
-| Principle | Assessment |
-|-----------|-----------|
-| **Single Responsibility** | Good. `GraphClient` owns client construction. `build_scopes` owns scope resolution. `_TokenStoreAccessTokenProvider` owns the Kiota adapter contract. |
-| **Open/Closed** | Good. `SCOPE_MAP` is the extension point for new scope toggles -- add an entry, no logic changes needed. |
-| **Liskov Substitution** | `_TokenStoreAccessTokenProvider` correctly implements the `AccessTokenProvider` protocol. |
-| **Interface Segregation** | `GraphClient` exposes only `.client` and `.store` -- minimal surface. |
-| **Dependency Inversion** | `GraphClient` depends on `Settings` (a concrete class) rather than an abstraction. Acceptable for this project's scope -- introducing a protocol for `Settings` would be over-engineering for a single-user server. |
-
----
+Types are well-annotated throughout. The one gap is the `getattr(settings, attr, False)` call in `build_scopes` which bypasses static type checking for the `SCOPE_MAP` key lookup (Finding 6).
 
 ### Edge Cases and Risks
 
-1. **Token refresh failure at runtime**: If `acquire_token_silent` raises (expired refresh token, revoked consent), the error propagates through Kiota into the Graph API call. The domain modules (`graph/mail.py`, etc.) should catch this and surface a meaningful MCP error. Verify this error path is handled.
-2. **Singleton initialization race under async**: The `threading.Lock` protects against thread-based races, but `server.py` calls `get_graph_client()` at module level (synchronous import time), so the async event loop is not yet running. This is safe as-is, but worth noting if initialization ever moves to an async context.
-3. **`SCOPE_MAP` key drift**: If `Settings` renames a scope toggle field, `SCOPE_MAP` keys will silently stop matching via `getattr(..., False)`. Add a startup assertion or test that validates all `SCOPE_MAP` keys correspond to real `Settings` attributes.
+1. **Token refresh failure at runtime.** If `acquire_token_silent` raises `RuntimeError` (expired refresh token, revoked consent), the error propagates through Kiota into the Graph API call. The domain modules in `graph/*.py` must catch this and surface a meaningful MCP error. Verify this path is handled end-to-end.
+2. **Singleton initialization under async context.** The `threading.Lock` protects against thread-based races. Since `server.py` calls `get_graph_client()` at module-level import time (synchronous), the async event loop is not running yet. Safe as-is, but would need revisiting if initialization ever moves to an async context.
+3. **SCOPE_MAP key drift.** Covered in Finding 6 -- a renamed Settings field silently disables the scope.
 
 ## Verdict
 
-**Pass with minor issues.** The module is clean, well-structured, and follows project conventions. The mutable default argument suppression and the open `AllowedHostsValidator` are the most actionable items. The test coverage gaps around `_TokenStoreAccessTokenProvider` and the `settings=None` code path should be addressed to harden confidence in the authentication pipeline.
+**Pass with minor issues.** The module is clean, well-structured, and production-worthy. It follows the project's architectural conventions and the code reads well.
+
+Priority action items:
+
+| Priority | Finding | Effort |
+|----------|---------|--------|
+| RED | #1 Mutable default on protocol method | 5 min |
+| YELLOW | #2 Add tests for `_TokenStoreAccessTokenProvider` | 30 min |
+| YELLOW | #3 Restrict `AllowedHostsValidator` to `graph.microsoft.com` | 5 min |
+| YELLOW | #4 Warn when singleton ignores explicit settings | 10 min |
+| YELLOW | #5 Test `get_graph_client(settings=None)` path | 15 min |
+| GREEN | #6 Validate SCOPE_MAP keys against Settings | 10 min |
+| GREEN | #7 Make BASE_SCOPES immutable | 2 min |
+| GREEN | #8 Audit MailboxSettings scope necessity | 15 min |
+| GREEN | #9 Document store property coupling | 5 min |
