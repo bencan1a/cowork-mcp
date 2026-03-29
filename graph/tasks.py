@@ -109,7 +109,9 @@ async def list_tasks(
 
     # Handle pagination
     pages = 1
-    while result is not None and result.odata_next_link and len(tasks) < limit and pages < MAX_PAGES:
+    while (
+        result is not None and result.odata_next_link and len(tasks) < limit and pages < MAX_PAGES
+    ):
         try:
             result = (
                 await gc.client.me.todo.lists.by_todo_task_list_id(resolved_list_id)

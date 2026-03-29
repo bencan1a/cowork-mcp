@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from graph.errors import MAX_PAGES, clamp_limit, escape_odata_string, validate_graph_id, wrap_odata_error
 from kiota_abstractions.base_request_configuration import RequestConfiguration
 from msgraph.generated.models.automatic_replies_setting import AutomaticRepliesSetting
 from msgraph.generated.models.automatic_replies_status import AutomaticRepliesStatus
@@ -16,6 +15,9 @@ from msgraph.generated.models.mailbox_settings import MailboxSettings
 from msgraph.generated.models.message import Message
 from msgraph.generated.models.o_data_errors.o_data_error import ODataError
 from msgraph.generated.models.recipient import Recipient
+from msgraph.generated.users.item.mail_folders.item.messages.messages_request_builder import (
+    MessagesRequestBuilder as FolderMessagesRequestBuilder,
+)
 from msgraph.generated.users.item.mail_folders.mail_folders_request_builder import (
     MailFoldersRequestBuilder,
 )
@@ -31,14 +33,19 @@ from msgraph.generated.users.item.messages.item.reply.reply_post_request_body im
 from msgraph.generated.users.item.messages.item.reply_all.reply_all_post_request_body import (
     ReplyAllPostRequestBody,
 )
-from msgraph.generated.users.item.mail_folders.item.messages.messages_request_builder import (
-    MessagesRequestBuilder as FolderMessagesRequestBuilder,
-)
 from msgraph.generated.users.item.messages.messages_request_builder import (
     MessagesRequestBuilder,
 )
 from msgraph.generated.users.item.send_mail.send_mail_post_request_body import (
     SendMailPostRequestBody,
+)
+
+from graph.errors import (
+    MAX_PAGES,
+    clamp_limit,
+    escape_odata_string,
+    validate_graph_id,
+    wrap_odata_error,
 )
 
 if TYPE_CHECKING:
@@ -100,8 +107,6 @@ def _make_recipient(address: str) -> Recipient:
     r = Recipient()
     r.email_address = ea
     return r
-
-
 
 
 # ---------------------------------------------------------------------------
