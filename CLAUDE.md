@@ -23,14 +23,17 @@ Personal Outlook account
 ```
 
 **Key components:**
-- `server.py` — FastMCP server; registers all tools at startup based on scope toggles
+- `server.py` — FastMCP server; registers all tools at startup based on scope toggles. Contains `BearerAuthMiddleware` (Starlette) and all MCP tool definitions inline as decorated closures.
+- `config.py` — `Settings(BaseSettings)` via pydantic-settings; loads `.env` automatically.
 - `auth/oauth_flow.py` — One-time browser auth to get initial OAuth tokens
-- `auth/token_store.py` — Encrypted token persistence + silent MSAL refresh
-- `graph/client.py` — Authenticated Graph API client singleton
-- `graph/mail.py`, `graph/calendar.py` — Domain-specific Graph operations
+- `auth/token_store.py` — Encrypted (Fernet) token persistence + silent MSAL refresh
+- `graph/client.py` — `GraphClient` wrapper; `get_graph_client()` factory used at module level in `server.py`
+- `graph/mail.py`, `graph/calendar.py`, `graph/contacts.py`, `graph/tasks.py` — Domain-specific Graph API operations
 - `run_auth.py` — Standalone script; run once on first setup to authenticate
 - `deploy/` — systemd unit file + Cloudflare Tunnel setup notes
 - `.env` — Secrets and scope toggles (gitignored); see `.env.example`
+
+**Important: no `src/` directory** — all Python modules live at the repo root. Packages are `auth/` and `graph/`. `server.py`, `config.py`, and `run_auth.py` are top-level scripts.
 
 ## Critical Implementation Notes
 
@@ -41,6 +44,8 @@ authority="https://login.microsoftonline.com/consumers"
 Using `common` or `organizations` will fail silently for personal accounts.
 
 **Scope toggle system** — `.env` contains `SCOPE_MAIL_READ`, `SCOPE_CALENDAR_WRITE`, etc. On startup, `server.py` reads these and registers only enabled tool groups. Log which tools were registered and which were skipped.
+
+**Tool registration pattern** — Tools are defined as async closures inside `if settings.scope_*:` blocks in `server.py`, decorated with `@mcp.tool()`. They delegate to `graph/*.py` functions and catch `RuntimeError` → `ValueError` for MCP error surfacing. The module-level `gc` (GraphClient) is captured by closure.
 
 **Graph API pagination** — Graph returns 10–50 items by default. All list tools must handle `@odata.nextLink` pagination transparently.
 
@@ -81,25 +86,36 @@ python run_auth.py
 pytest                          # all tests
 pytest tests/test_mail.py       # single file
 pytest -k "test_list_emails"    # pattern match
-pytest -v --cov=src             # verbose with coverage
+pytest -v --cov=. --cov-report=term  # verbose with coverage
 
 # Code quality
-make check-all                  # all checks at once
+make check-all                  # all checks at once (format, lint, type, security, test)
 make fix                        # auto-fix format + lint
 ruff check --fix .
-mypy src/
+mypy config.py auth/ graph/     # type check (no src/ dir — modules at root)
+bandit -r config.py auth/ graph/ -s B404,B603,B607  # security scan
 ```
 
 ## Code Quality Standards
 
 All code must pass `make check-all` before commit:
 1. **Formatting**: `ruff format` (100-char line length)
-2. **Linting**: `ruff check`
-3. **Type checking**: both `mypy` and `pyright` (configured in `pyproject.toml` and `pyrightconfig.json`)
-4. **Security**: `bandit -r src/`
-5. **Tests**: all pass with >80% coverage
+2. **Linting**: `ruff check` (includes isort, bandit security rules, bugbear, etc.)
+3. **Type checking**: `mypy` (configured in `pyproject.toml`; `pyright` configured in `pyrightconfig.json` but not in `make check-all`)
+4. **Security**: `bandit` with `-s B404,B603,B607` skips
+5. **Tests**: all pass; `pytest-asyncio` with `asyncio_mode = "auto"`
+
+Pre-commit hooks run: trailing-whitespace, end-of-file-fixer, check-yaml/toml/json, detect-private-key, ruff (lint+format), mypy, bandit.
 
 For unavoidable suppressions: `# noqa: <code>`, `# type: ignore[<code>]`, `# nosec` — always add a justification comment.
+
+## Testing Notes
+
+**`conftest.py` `pytest_configure` hook** — `server.py` executes `Settings()` and `get_graph_client()` at module level during import. `tests/conftest.py` patches these before collection so tests run without real Azure credentials. This means `server` module is always pre-imported with all scope toggles set to `False`.
+
+**Async tests** — `asyncio_mode = "auto"` in `pyproject.toml`, so async test functions run automatically without `@pytest.mark.asyncio`.
+
+**Test markers**: `slow`, `integration`, `unit` — deselect slow tests with `-m "not slow"`.
 
 ## File Organization
 
