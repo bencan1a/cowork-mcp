@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 from typing import Any
@@ -63,15 +64,15 @@ class _TokenStoreAccessTokenProvider(AccessTokenProvider):
         self._store = store
         self._settings = settings
         self._scopes = build_scopes(settings)
-        # Empty list → all hosts are valid
-        self._validator = AllowedHostsValidator([])
+        self._validator = AllowedHostsValidator(["graph.microsoft.com"])
 
     async def get_authorization_token(
         self,
         uri: str,  # noqa: ARG002 — required by AccessTokenProvider protocol
         additional_authentication_context: dict[str, Any] = {},  # noqa: ARG002,B006 — required by protocol
     ) -> str:
-        return self._store.acquire_token_silent(
+        return await asyncio.to_thread(
+            self._store.acquire_token_silent,
             self._scopes,
             self._settings.azure_client_id,
             self._settings.azure_client_secret,
@@ -126,7 +127,7 @@ def get_graph_client(settings: Settings | None = None) -> GraphClient:
         with _lock:
             if _instance is None:
                 if settings is None:
-                    settings = Settings()
+                    settings = Settings()  # type: ignore[call-arg]  # pydantic-settings loads from .env
                 _instance = GraphClient(settings)
                 logger.info("GraphClient initialised")
     return _instance

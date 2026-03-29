@@ -29,6 +29,8 @@ from msgraph.generated.users.item.events.item.tentatively_accept.tentatively_acc
     TentativelyAcceptPostRequestBody,
 )
 
+from graph.errors import MAX_PAGES, clamp_limit, validate_graph_id, wrap_odata_error
+
 if TYPE_CHECKING:
     from graph.client import GraphClient
 
@@ -68,13 +70,6 @@ def _event_to_dict(event: Any) -> dict[str, Any]:
     }
 
 
-def _wrap_odata_error(exc: ODataError) -> RuntimeError:
-    """Convert an ODataError into a RuntimeError with a readable message."""
-    code = exc.error.code if exc.error else "unknown"
-    msg = exc.error.message if exc.error else str(exc)
-    return RuntimeError(f"Graph API error {code}: {msg}")
-
-
 # ---------------------------------------------------------------------------
 # Calendar listing
 # ---------------------------------------------------------------------------
@@ -85,7 +80,7 @@ async def list_calendars(gc: GraphClient) -> list[dict[str, Any]]:
     try:
         result = await gc.client.me.calendars.get()
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if result is None or result.value is None:
         return []
@@ -120,6 +115,7 @@ async def list_events(
     Uses ``/me/calendarView`` which expands recurring events — preferred over
     ``/me/events`` for time-range queries.
     """
+    limit = clamp_limit(limit)
     query_params = CalendarViewRequestBuilder.CalendarViewRequestBuilderGetQueryParameters(
         start_date_time=start_datetime,
         end_date_time=end_datetime,
@@ -130,7 +126,7 @@ async def list_events(
     try:
         result = await gc.client.me.calendar_view.get(request_configuration=request_config)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if result is None or result.value is None:
         return []
@@ -138,13 +134,18 @@ async def list_events(
     events = list(result.value)
 
     # Handle pagination via @odata.nextLink
+    pages = 1
     while result is not None and result.odata_next_link and len(events) < limit:
+        if pages >= MAX_PAGES:
+            logger.warning("list_events: hit MAX_PAGES (%d) safety cap", MAX_PAGES)
+            break
         try:
             result = await gc.client.me.calendar_view.with_url(result.odata_next_link).get()
         except ODataError as exc:
-            raise _wrap_odata_error(exc) from exc
+            raise wrap_odata_error(exc) from exc
         if result and result.value:
             events.extend(result.value)
+        pages += 1
 
     return [_event_to_dict(e) for e in events[:limit]]
 
@@ -156,10 +157,11 @@ async def list_events(
 
 async def get_event(gc: GraphClient, event_id: str) -> dict[str, Any]:
     """Fetch a single event by ID."""
+    validate_graph_id(event_id, "event_id")
     try:
         event = await gc.client.me.events.by_event_id(event_id).get()
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if event is None:
         raise RuntimeError(f"Event {event_id!r} not found")
@@ -173,6 +175,8 @@ async def get_event(gc: GraphClient, event_id: str) -> dict[str, Any]:
 
 async def search_events(gc: GraphClient, query: str, limit: int = 20) -> list[dict[str, Any]]:
     """Search events by subject/body using ``$search``."""
+    limit = clamp_limit(limit)
+
     from msgraph.generated.users.item.events.events_request_builder import (  # noqa: PLC0415
         EventsRequestBuilder,
     )
@@ -186,12 +190,28 @@ async def search_events(gc: GraphClient, query: str, limit: int = 20) -> list[di
     try:
         result = await gc.client.me.events.get(request_configuration=request_config)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if result is None or result.value is None:
         return []
 
-    return [_event_to_dict(e) for e in result.value[:limit]]
+    events = list(result.value)
+
+    # Handle pagination via @odata.nextLink
+    pages = 1
+    while result is not None and result.odata_next_link and len(events) < limit:
+        if pages >= MAX_PAGES:
+            logger.warning("search_events: hit MAX_PAGES (%d) safety cap", MAX_PAGES)
+            break
+        try:
+            result = await gc.client.me.events.with_url(result.odata_next_link).get()
+        except ODataError as exc:
+            raise wrap_odata_error(exc) from exc
+        if result and result.value:
+            events.extend(result.value)
+        pages += 1
+
+    return [_event_to_dict(e) for e in events[:limit]]
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +275,7 @@ async def create_event(
     try:
         created = await gc.client.me.events.post(event)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if created is None:
         raise RuntimeError("Event creation returned no result")
@@ -269,6 +289,7 @@ async def create_event(
 
 async def update_event(gc: GraphClient, event_id: str, **fields: Any) -> dict[str, Any]:
     """Update an existing event. Pass keyword args matching Graph Event fields."""
+    validate_graph_id(event_id, "event_id")
     event = Event()
 
     for key, value in fields.items():
@@ -280,7 +301,7 @@ async def update_event(gc: GraphClient, event_id: str, **fields: Any) -> dict[st
     try:
         updated = await gc.client.me.events.by_event_id(event_id).patch(event)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if updated is None:
         # PATCH may return 204 No Content — re-fetch to return the updated state
@@ -295,10 +316,11 @@ async def update_event(gc: GraphClient, event_id: str, **fields: Any) -> dict[st
 
 async def delete_event(gc: GraphClient, event_id: str) -> None:
     """Delete an event by ID."""
+    validate_graph_id(event_id, "event_id")
     try:
         await gc.client.me.events.by_event_id(event_id).delete()
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +330,7 @@ async def delete_event(gc: GraphClient, event_id: str) -> None:
 
 async def accept_event(gc: GraphClient, event_id: str, comment: str = "") -> None:
     """Accept a meeting invitation."""
+    validate_graph_id(event_id, "event_id")
     body = AcceptPostRequestBody()
     body.send_response = True
     body.comment = comment
@@ -315,11 +338,12 @@ async def accept_event(gc: GraphClient, event_id: str, comment: str = "") -> Non
     try:
         await gc.client.me.events.by_event_id(event_id).accept.post(body)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 async def decline_event(gc: GraphClient, event_id: str, comment: str = "") -> None:
     """Decline a meeting invitation."""
+    validate_graph_id(event_id, "event_id")
     body = DeclinePostRequestBody()
     body.send_response = True
     body.comment = comment
@@ -327,11 +351,12 @@ async def decline_event(gc: GraphClient, event_id: str, comment: str = "") -> No
     try:
         await gc.client.me.events.by_event_id(event_id).decline.post(body)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 async def tentative_event(gc: GraphClient, event_id: str, comment: str = "") -> None:
     """Tentatively accept a meeting invitation."""
+    validate_graph_id(event_id, "event_id")
     body = TentativelyAcceptPostRequestBody()
     body.send_response = True
     body.comment = comment
@@ -339,7 +364,7 @@ async def tentative_event(gc: GraphClient, event_id: str, comment: str = "") -> 
     try:
         await gc.client.me.events.by_event_id(event_id).tentatively_accept.post(body)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +396,7 @@ async def get_free_busy(
     try:
         result = await gc.client.me.calendar.get_schedule.post(request_body)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if result is None or result.value is None:
         return {"schedules": []}

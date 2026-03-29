@@ -10,6 +10,7 @@ Run with:
 
 from __future__ import annotations
 
+import hmac
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -49,7 +50,8 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         auth = request.headers.get("Authorization", "")
-        if auth != f"Bearer {self._api_key}":
+        if not hmac.compare_digest(auth.encode(), f"Bearer {self._api_key}".encode()):
+            logger.warning("Unauthorized request from %s", request.client.host)
             return Response("Unauthorized", status_code=401)
         return await call_next(request)
 
@@ -59,6 +61,8 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 # ---------------------------------------------------------------------------
 
 settings: Settings = Settings()
+if not settings.mcp_api_key:
+    raise RuntimeError("MCP_API_KEY must be set to a non-empty value in .env")
 gc: GraphClient = get_graph_client(settings)
 
 # Set log level from settings

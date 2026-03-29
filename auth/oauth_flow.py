@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import threading
 import urllib.parse
 import webbrowser
@@ -28,6 +29,7 @@ GRAPH_SCOPES = [
 ]
 
 _auth_code: str | None = None
+_expected_state: str | None = None
 _auth_event = threading.Event()
 
 
@@ -38,7 +40,14 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         global _auth_code  # noqa: PLW0603
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
-        if "code" in params:
+        received_state = params.get("state", [None])[0]
+        if received_state != _expected_state:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(
+                b"<h1>Authentication failed</h1><p>State mismatch (possible CSRF).</p>"
+            )
+        elif "code" in params:
             _auth_code = params["code"][0]
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -62,8 +71,9 @@ def run_oauth_flow(settings: Settings) -> None:
     Opens a browser for the user to log in, captures the redirect on
     localhost:8400, exchanges the code for tokens, and saves to TokenStore.
     """
-    global _auth_code, _auth_event  # noqa: PLW0603
+    global _auth_code, _expected_state, _auth_event  # noqa: PLW0603
     _auth_code = None
+    _expected_state = secrets.token_urlsafe(32)
     _auth_event = threading.Event()
 
     store = TokenStore(settings.token_cache_path, settings.token_encryption_key)
@@ -75,14 +85,15 @@ def run_oauth_flow(settings: Settings) -> None:
         token_cache=store._cache,  # accessing private MSAL cache to share state
     )
 
-    redirect_uri = "http://localhost:8400/callback"
+    redirect_uri = "http://127.0.0.1:8400/callback"
     auth_url = app.get_authorization_request_url(
         scopes=GRAPH_SCOPES,
         redirect_uri=redirect_uri,
+        state=_expected_state,
     )
 
     # Start local redirect capture server in a daemon thread
-    server = HTTPServer(("localhost", 8400), _CallbackHandler)
+    server = HTTPServer(("127.0.0.1", 8400), _CallbackHandler)
     thread = threading.Thread(target=server.handle_request, daemon=True)
     thread.start()
 

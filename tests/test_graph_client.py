@@ -17,43 +17,51 @@ def reset_singleton():
     reset_graph_client()
 
 
+# Required secrets for all Settings instantiations in tests
+_REQUIRED = {
+    "azure_client_id": "test-id",
+    "azure_client_secret": "test-secret",
+    "token_encryption_key": "test-key",
+    "mcp_api_key": "test-api-key",
+}
+
+
 class TestBuildScopes:
     def test_includes_base_scopes(self) -> None:
-        s = Settings()
+        s = Settings(**_REQUIRED)
         scopes = build_scopes(s)
         assert "User.Read" in scopes
         assert "offline_access" in scopes
 
     def test_mail_scopes_when_enabled(self) -> None:
-        s = Settings(scope_mail_read=True, scope_mail_send=True)
+        s = Settings(**_REQUIRED, scope_mail_read=True, scope_mail_send=True)
         scopes = build_scopes(s)
         assert "Mail.ReadWrite" in scopes
         assert "Mail.Send" in scopes
 
     def test_no_duplicates(self) -> None:
-        s = Settings(scope_mail_read=True, scope_mail_write=True)
+        s = Settings(**_REQUIRED, scope_mail_read=True, scope_mail_write=True)
         scopes = build_scopes(s)
         assert len(scopes) == len(set(scopes))
 
     def test_disabled_scope_excluded(self) -> None:
-        # If ALL contacts scopes are off, Contacts.ReadWrite must not appear
-        s2 = Settings(scope_contacts_read=False, scope_contacts_write=False)
+        s2 = Settings(**_REQUIRED, scope_contacts_read=False, scope_contacts_write=False)
         scopes2 = build_scopes(s2)
         assert "Contacts.ReadWrite" not in scopes2
 
     def test_disabled_tasks_scope_excluded(self) -> None:
-        s = Settings(scope_tasks_read=False, scope_tasks_write=False)
+        s = Settings(**_REQUIRED, scope_tasks_read=False, scope_tasks_write=False)
         scopes = build_scopes(s)
         assert "Tasks.ReadWrite" not in scopes
 
     def test_returns_sorted_list(self) -> None:
-        s = Settings()
+        s = Settings(**_REQUIRED)
         scopes = build_scopes(s)
         assert scopes == sorted(scopes)
 
     def test_base_scopes_always_present(self) -> None:
-        # Even with every toggle disabled, base scopes are there
         s = Settings(
+            **_REQUIRED,
             scope_mail_read=False,
             scope_mail_write=False,
             scope_mail_send=False,
@@ -68,7 +76,6 @@ class TestBuildScopes:
         assert "User.Read" in scopes
         assert "MailboxSettings.ReadWrite" in scopes
         assert "offline_access" in scopes
-        # No domain scopes
         assert "Mail.ReadWrite" not in scopes
         assert "Calendars.ReadWrite" not in scopes
 

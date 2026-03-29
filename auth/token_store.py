@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import stat
+import threading
 from typing import TYPE_CHECKING, Any, cast
 
 import msal
@@ -24,6 +25,9 @@ class TokenStore:
         self._cache_path = cache_path
         self._fernet = Fernet(encryption_key.encode())
         self._cache = msal.SerializableTokenCache()
+        self._lock = threading.Lock()
+        self._app: msal.ConfidentialClientApplication | None = None
+        self._app_client_id: str = ""
         self._load()
 
     def _load(self) -> None:
@@ -62,21 +66,26 @@ class TokenStore:
         """Acquire an access token silently using the cached refresh token.
 
         Raises RuntimeError if silent acquire fails (reauth required).
+        Thread-safe: serializes token acquisition + save via a lock.
         """
-        app = self._build_app(client_id, client_secret)
-        accounts = app.get_accounts()
-        if not accounts:
+        with self._lock:
+            if self._app is None or self._app_client_id != client_id:
+                self._app = self._build_app(client_id, client_secret)
+                self._app_client_id = client_id
+            app = self._app
+            accounts = app.get_accounts()
+            if not accounts:
+                raise RuntimeError(
+                    "No cached accounts found — run `python run_auth.py` to authenticate"
+                )
+            result = app.acquire_token_silent(scopes, account=accounts[0])
+            if result and "access_token" in result:
+                self.save()
+                return cast("str", result["access_token"])
+            error = result.get("error_description", "unknown") if result else "no result"
             raise RuntimeError(
-                "No cached accounts found — run `python run_auth.py` to authenticate"
+                f"Silent token acquisition failed: {error} — run `python run_auth.py` to re-authenticate"
             )
-        result = app.acquire_token_silent(scopes, account=accounts[0])
-        if result and "access_token" in result:
-            self.save()
-            return cast("str", result["access_token"])
-        error = result.get("error_description", "unknown") if result else "no result"
-        raise RuntimeError(
-            f"Silent token acquisition failed: {error} — run `python run_auth.py` to re-authenticate"
-        )
 
     def needs_reauth(self, scopes: list[str], client_id: str, client_secret: str) -> bool:
         """Return True if interactive re-authentication is needed."""

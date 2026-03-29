@@ -10,27 +10,29 @@ This file provides comprehensive context about the project for AI agents and dev
 
 ```json
 {
-  "project_name": "python-template",
-  "description": "A well-configured Python project template optimized for GitHub Copilot",
-  "python_version": ">=3.10",
+  "project_name": "outlook-mcp",
+  "description": "Self-hosted Python MCP server providing Claude with read/write access to a personal Outlook account via Microsoft Graph API",
+  "python_version": ">=3.11",
   "primary_tools": {
     "package_manager": "pip",
     "testing": "pytest",
     "linting": "ruff",
-    "formatting": "ruff + black",
+    "formatting": "ruff format",
     "type_checking": "mypy",
-    "security": "bandit",
-    "documentation": "sphinx + pdoc3"
+    "security": "bandit"
   },
   "folder_structure": {
-    "src/": "Source code",
+    "server.py": "FastMCP server entry point (root level)",
+    "config.py": "Settings via pydantic-settings (root level)",
+    "run_auth.py": "One-time OAuth setup script (root level)",
+    "auth/": "OAuth flow and token storage",
+    "graph/": "Microsoft Graph API domain modules (mail, calendar, contacts, tasks)",
     "tests/": "Test files",
     "docs/": "Permanent documentation",
     "docs/_generated/": "Auto-generated documentation",
+    "deploy/": "systemd unit file and deployment notes",
     "agent-tmp/": "Temporary agent workspace (gitignored)",
-    "agent-plans/": "Ephemeral plan documents",
     "agent-projects/": "Active agent project folders",
-    "tools/": "Build and automation scripts",
     ".github/": "GitHub configuration and workflows"
   },
   "quality_standards": {
