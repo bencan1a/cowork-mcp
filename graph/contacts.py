@@ -11,10 +11,27 @@ from msgraph.generated.users.item.contacts.contacts_request_builder import (
     ContactsRequestBuilder,
 )
 
+from graph.errors import MAX_PAGES, clamp_limit, validate_graph_id, wrap_odata_error
+
 if TYPE_CHECKING:
     from graph.client import GraphClient
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Allowlist of fields safe to set on a Contact object
+# ---------------------------------------------------------------------------
+
+_ALLOWED_CONTACT_FIELDS: set[str] = {
+    "given_name",
+    "surname",
+    "display_name",
+    "mobile_phone",
+    "business_phones",
+    "company_name",
+    "job_title",
+    "personal_notes",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -36,11 +53,19 @@ def _contact_to_dict(c: Any) -> dict[str, Any]:
     }
 
 
-def _wrap_odata_error(exc: ODataError) -> RuntimeError:
-    """Convert an ODataError into a RuntimeError with a readable message."""
-    code = exc.error.code if exc.error else "unknown"
-    msg = exc.error.message if exc.error else str(exc)
-    return RuntimeError(f"Graph API error {code}: {msg}")
+def _normalize_email_addresses(
+    email_input: Any,
+) -> list[EmailAddress]:
+    """Convert plain strings or EmailAddress objects into a list of EmailAddress."""
+    email_list: list[EmailAddress] = []
+    for item in email_input if isinstance(email_input, list) else [email_input]:
+        if isinstance(item, str):
+            ea = EmailAddress()
+            ea.address = item
+            email_list.append(ea)
+        else:
+            email_list.append(item)
+    return email_list
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +79,8 @@ async def list_contacts(
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     """Return contacts, optionally filtered by a search query."""
+    limit = clamp_limit(limit)
+
     query_params = ContactsRequestBuilder.ContactsRequestBuilderGetQueryParameters(
         top=limit,
         search=search,
@@ -63,7 +90,7 @@ async def list_contacts(
     try:
         result = await gc.client.me.contacts.get(request_configuration=request_config)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if result is None or result.value is None:
         return []
@@ -71,13 +98,18 @@ async def list_contacts(
     contacts = list(result.value)
 
     # Handle pagination
+    pages = 1
     while result is not None and result.odata_next_link and len(contacts) < limit:
+        if pages >= MAX_PAGES:
+            logger.warning("Pagination safety cap reached (%d pages)", MAX_PAGES)
+            break
         try:
             result = await gc.client.me.contacts.with_url(result.odata_next_link).get()
         except ODataError as exc:
-            raise _wrap_odata_error(exc) from exc
+            raise wrap_odata_error(exc) from exc
         if result and result.value:
             contacts.extend(result.value)
+        pages += 1
 
     return [_contact_to_dict(c) for c in contacts[:limit]]
 
@@ -89,10 +121,11 @@ async def list_contacts(
 
 async def get_contact(gc: GraphClient, contact_id: str) -> dict[str, Any]:
     """Fetch a single contact by ID."""
+    validate_graph_id(contact_id, "contact_id")
     try:
         contact = await gc.client.me.contacts.by_contact_id(contact_id).get()
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if contact is None:
         raise RuntimeError(f"Contact {contact_id!r} not found")
@@ -115,26 +148,18 @@ async def create_contact(gc: GraphClient, **fields: Any) -> dict[str, Any]:
     # Handle email_addresses specially — convert plain strings to EmailAddress objects
     email_input = fields.pop("email_addresses", None)
     if email_input:
-        email_list: list[EmailAddress] = []
-        for item in email_input if isinstance(email_input, list) else [email_input]:
-            if isinstance(item, str):
-                ea = EmailAddress()
-                ea.address = item
-                email_list.append(ea)
-            else:
-                email_list.append(item)
-        contact.email_addresses = email_list
+        contact.email_addresses = _normalize_email_addresses(email_input)
 
     for key, value in fields.items():
-        if hasattr(contact, key):
+        if key in _ALLOWED_CONTACT_FIELDS:
             setattr(contact, key, value)
         else:
-            logger.warning("Unknown Contact field %r — skipping", key)
+            logger.warning("Unknown or disallowed Contact field %r — skipping", key)
 
     try:
         created = await gc.client.me.contacts.post(contact)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if created is None:
         raise RuntimeError("Contact creation returned no result")
@@ -148,20 +173,40 @@ async def create_contact(gc: GraphClient, **fields: Any) -> dict[str, Any]:
 
 async def update_contact(gc: GraphClient, contact_id: str, **fields: Any) -> dict[str, Any]:
     """Update an existing contact. Pass keyword args matching Graph Contact fields."""
+    validate_graph_id(contact_id, "contact_id")
     contact = Contact()
 
+    # Handle email_addresses specially — convert plain strings to EmailAddress objects
+    email_input = fields.pop("email_addresses", None)
+    if email_input:
+        contact.email_addresses = _normalize_email_addresses(email_input)
+
     for key, value in fields.items():
-        if hasattr(contact, key):
+        if key in _ALLOWED_CONTACT_FIELDS:
             setattr(contact, key, value)
         else:
-            logger.warning("Unknown Contact field %r — skipping", key)
+            logger.warning("Unknown or disallowed Contact field %r — skipping", key)
 
     try:
         updated = await gc.client.me.contacts.by_contact_id(contact_id).patch(contact)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if updated is None:
         # PATCH may return 204 No Content — re-fetch to return the updated state
         return await get_contact(gc, contact_id)
     return _contact_to_dict(updated)
+
+
+# ---------------------------------------------------------------------------
+# Delete contact
+# ---------------------------------------------------------------------------
+
+
+async def delete_contact(gc: GraphClient, contact_id: str) -> None:
+    """Delete a contact by ID."""
+    validate_graph_id(contact_id, "contact_id")
+    try:
+        await gc.client.me.contacts.by_contact_id(contact_id).delete()
+    except ODataError as exc:
+        raise wrap_odata_error(exc) from exc

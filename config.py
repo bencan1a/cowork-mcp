@@ -15,17 +15,15 @@ class Settings(BaseSettings):
     )
 
     # Azure credentials
-    azure_client_id: str = Field(default="", description="Azure app client ID")
-    azure_client_secret: str = Field(default="", description="Azure app client secret")
+    azure_client_id: str = Field(description="Azure app client ID")
+    azure_client_secret: str = Field(description="Azure app client secret")
 
     # Token storage
     token_cache_path: Path = Field(default=Path(".token_cache.json"))
-    token_encryption_key: str = Field(
-        default="", description="Fernet encryption key for token cache"
-    )
+    token_encryption_key: str = Field(description="Fernet encryption key for token cache")
 
     # MCP server auth
-    mcp_api_key: str = Field(default="", description="Bearer token for MCP server auth")
+    mcp_api_key: str = Field(description="Bearer token for MCP server auth")
 
     # Scope toggles
     scope_mail_read: bool = Field(default=True)

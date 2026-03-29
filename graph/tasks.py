@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from kiota_abstractions.base_request_configuration import RequestConfiguration
@@ -13,6 +14,8 @@ from msgraph.generated.models.todo_task import TodoTask
 from msgraph.generated.users.item.todo.lists.item.tasks.tasks_request_builder import (
     TasksRequestBuilder,
 )
+
+from graph.errors import MAX_PAGES, clamp_limit, validate_graph_id, wrap_odata_error
 
 if TYPE_CHECKING:
     from graph.client import GraphClient
@@ -44,22 +47,16 @@ def _task_to_dict(task: Any) -> dict[str, Any]:
     }
 
 
-def _wrap_odata_error(exc: ODataError) -> RuntimeError:
-    """Convert an ODataError into a RuntimeError with a readable message."""
-    code = exc.error.code if exc.error else "unknown"
-    msg = exc.error.message if exc.error else str(exc)
-    return RuntimeError(f"Graph API error {code}: {msg}")
-
-
 async def _resolve_list_id(gc: GraphClient, list_id: str | None) -> str:
     """Return *list_id* if provided, otherwise the ID of the first todo list."""
     if list_id is not None:
+        validate_graph_id(list_id, "list_id")
         return list_id
 
     try:
         result = await gc.client.me.todo.lists.get()
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if result is None or not result.value:
         raise RuntimeError("No todo lists found for the authenticated user")
@@ -83,6 +80,7 @@ async def list_tasks(
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     """Return tasks from a todo list, optionally filtered by completion status."""
+    limit = clamp_limit(limit)
     resolved_list_id = await _resolve_list_id(gc, list_id)
 
     filter_expr: str | None = None
@@ -102,7 +100,7 @@ async def list_tasks(
             request_configuration=request_config
         )
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if result is None or result.value is None:
         return []
@@ -110,7 +108,8 @@ async def list_tasks(
     tasks = list(result.value)
 
     # Handle pagination
-    while result is not None and result.odata_next_link and len(tasks) < limit:
+    pages = 1
+    while result is not None and result.odata_next_link and len(tasks) < limit and pages < MAX_PAGES:
         try:
             result = (
                 await gc.client.me.todo.lists.by_todo_task_list_id(resolved_list_id)
@@ -118,9 +117,10 @@ async def list_tasks(
                 .get()
             )
         except ODataError as exc:
-            raise _wrap_odata_error(exc) from exc
+            raise wrap_odata_error(exc) from exc
         if result and result.value:
             tasks.extend(result.value)
+        pages += 1
 
     return [_task_to_dict(t) for t in tasks[:limit]]
 
@@ -145,6 +145,7 @@ async def create_task(
     task.title = title
 
     if due_date:
+        datetime.fromisoformat(due_date)  # validates format; raises ValueError if malformed
         due_dt = DateTimeTimeZone()
         due_dt.date_time = due_date
         due_dt.time_zone = "UTC"
@@ -161,7 +162,7 @@ async def create_task(
             task
         )
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if created is None:
         raise RuntimeError("Task creation returned no result")
@@ -189,7 +190,7 @@ async def complete_task(
             .patch(patch_task)
         )
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
     if updated is None:
         # PATCH may return 204 — re-fetch
@@ -200,7 +201,7 @@ async def complete_task(
                 .get()
             )
         except ODataError as exc:
-            raise _wrap_odata_error(exc) from exc
+            raise wrap_odata_error(exc) from exc
         if fetched is None:
             raise RuntimeError(f"Task {task_id!r} not found after completion")
         return _task_to_dict(fetched)
@@ -224,4 +225,4 @@ async def delete_task(gc: GraphClient, task_id: str, list_id: str | None = None)
             .delete()
         )
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc

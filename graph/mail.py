@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from graph.errors import MAX_PAGES, clamp_limit, escape_odata_string, validate_graph_id, wrap_odata_error
 from kiota_abstractions.base_request_configuration import RequestConfiguration
 from msgraph.generated.models.automatic_replies_setting import AutomaticRepliesSetting
 from msgraph.generated.models.automatic_replies_status import AutomaticRepliesStatus
@@ -101,10 +102,6 @@ def _make_recipient(address: str) -> Recipient:
     return r
 
 
-def _wrap_odata_error(exc: ODataError) -> RuntimeError:
-    code = exc.error.code if exc.error else "unknown"
-    msg = exc.error.message if exc.error else str(exc)
-    return RuntimeError(f"Graph API error {code}: {msg}")
 
 
 # ---------------------------------------------------------------------------
@@ -138,9 +135,10 @@ async def list_emails(
     Returns:
         List of message dicts.
     """
+    limit = clamp_limit(limit)
     filters: list[str] = []
     if sender:
-        filters.append(f"from/emailAddress/address eq '{sender}'")
+        filters.append(f"from/emailAddress/address eq '{escape_odata_string(sender)}'")
     if unread_only:
         filters.append("isRead eq false")
     if date_from:
@@ -148,7 +146,7 @@ async def list_emails(
     if date_to:
         filters.append(f"receivedDateTime le {date_to}")
     if subject:
-        filters.append(f"contains(subject, '{subject}')")
+        filters.append(f"contains(subject, '{escape_odata_string(subject)}')")
     filter_str = " and ".join(filters) if filters else None
 
     page_size = min(limit, 50)
@@ -177,19 +175,23 @@ async def list_emails(
         request_config = RequestConfiguration(query_parameters=query_params)
 
         results: list[dict[str, Any]] = []
+        pages = 0
         response = await messages_builder.get(request_configuration=request_config)
         while response and response.value:
+            pages += 1
             for msg in response.value:
                 results.append(_message_to_dict(msg))
                 if len(results) >= limit:
                     return results
+            if pages >= MAX_PAGES:
+                break
             if response.odata_next_link:
                 response = await messages_builder.with_url(response.odata_next_link).get()
             else:
                 break
         return results
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 async def get_email(gc: GraphClient, message_id: str) -> dict[str, Any]:
@@ -202,6 +204,7 @@ async def get_email(gc: GraphClient, message_id: str) -> dict[str, Any]:
     Returns:
         Message dict with full body content.
     """
+    validate_graph_id(message_id, "message_id")
     try:
         msg = await gc.client.me.messages.by_message_id(message_id).get()
         if msg is None:
@@ -223,7 +226,7 @@ async def get_email(gc: GraphClient, message_id: str) -> dict[str, Any]:
             result["attachments"] = attachments
         return result
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 async def search_emails(gc: GraphClient, query: str, limit: int = 20) -> list[dict[str, Any]]:
@@ -237,6 +240,7 @@ async def search_emails(gc: GraphClient, query: str, limit: int = 20) -> list[di
     Returns:
         List of matching message dicts.
     """
+    limit = clamp_limit(limit)
     page_size = min(limit, 50)
     try:
         query_params = MessagesRequestBuilder.MessagesRequestBuilderGetQueryParameters(
@@ -256,19 +260,23 @@ async def search_emails(gc: GraphClient, query: str, limit: int = 20) -> list[di
         )
         request_config = RequestConfiguration(query_parameters=query_params)
         results: list[dict[str, Any]] = []
+        pages = 0
         response = await gc.client.me.messages.get(request_configuration=request_config)
         while response and response.value:
+            pages += 1
             for msg in response.value:
                 results.append(_message_to_dict(msg))
                 if len(results) >= limit:
                     return results
+            if pages >= MAX_PAGES:
+                break
             if response.odata_next_link:
                 response = await gc.client.me.messages.with_url(response.odata_next_link).get()
             else:
                 break
         return results
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +305,8 @@ async def send_email(
         cc: Optional CC recipient addresses.
         bcc: Optional BCC recipient addresses.
     """
+    if not to:
+        raise RuntimeError("At least one recipient required")
     msg = Message()
     msg.subject = subject
     msg.to_recipients = [_make_recipient(addr) for addr in to]
@@ -318,7 +328,7 @@ async def send_email(
     try:
         await gc.client.me.send_mail.post(req_body)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 async def reply_to_email(
@@ -336,6 +346,7 @@ async def reply_to_email(
         body: Plain-text comment to include in the reply.
         reply_all: If True, reply to all recipients.
     """
+    validate_graph_id(message_id, "message_id")
     msg_builder = gc.client.me.messages.by_message_id(message_id)
     try:
         if reply_all:
@@ -347,7 +358,7 @@ async def reply_to_email(
             req_body_reply.comment = body
             await msg_builder.reply.post(req_body_reply)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 async def forward_email(
@@ -365,13 +376,16 @@ async def forward_email(
         to: List of recipient email addresses.
         comment: Optional comment to prepend to the forwarded message.
     """
+    if not to:
+        raise RuntimeError("At least one recipient required")
+    validate_graph_id(message_id, "message_id")
     req_body = ForwardPostRequestBody()
     req_body.to_recipients = [_make_recipient(addr) for addr in to]
     req_body.comment = comment
     try:
         await gc.client.me.messages.by_message_id(message_id).forward.post(req_body)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +406,8 @@ async def move_email(
     Returns:
         Updated message dict reflecting new location.
     """
+    validate_graph_id(message_id, "message_id")
+    validate_graph_id(destination_folder_id, "destination_folder_id")
     req_body = MovePostRequestBody()
     req_body.destination_id = destination_folder_id
     try:
@@ -400,7 +416,7 @@ async def move_email(
             raise RuntimeError(f"Move returned no message for {message_id!r}")
         return _message_to_dict(moved)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 async def delete_email(gc: GraphClient, message_id: str) -> None:
@@ -410,10 +426,11 @@ async def delete_email(gc: GraphClient, message_id: str) -> None:
         gc: Authenticated GraphClient.
         message_id: The Graph message ID to delete.
     """
+    validate_graph_id(message_id, "message_id")
     try:
         await gc.client.me.messages.by_message_id(message_id).delete()
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 async def mark_email_read(
@@ -437,7 +454,7 @@ async def mark_email_read(
             raise RuntimeError(f"Patch returned no message for {message_id!r}")
         return _message_to_dict(updated)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -469,7 +486,7 @@ async def list_mail_folders(gc: GraphClient) -> list[dict[str, Any]]:
                 break
         return results
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 async def create_mail_folder(
@@ -501,7 +518,7 @@ async def create_mail_folder(
             raise RuntimeError(f"Create folder returned None for {display_name!r}")
         return _folder_to_dict(created)
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -549,7 +566,7 @@ async def get_mailbox_settings(gc: GraphClient) -> dict[str, Any]:
             }
         return result
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
 
 
 async def set_auto_reply(
@@ -613,4 +630,4 @@ async def set_auto_reply(
             }
         return result
     except ODataError as exc:
-        raise _wrap_odata_error(exc) from exc
+        raise wrap_odata_error(exc) from exc
