@@ -446,6 +446,7 @@ async def mark_email_read(
     Returns:
         Updated message dict.
     """
+    validate_graph_id(message_id, "message_id")
     patch_msg = Message()
     patch_msg.is_read = is_read
     try:
@@ -476,10 +477,14 @@ async def list_mail_folders(gc: GraphClient) -> list[dict[str, Any]]:
             query_parameters=query_params,
         )
         results: list[dict[str, Any]] = []
+        pages = 0
         response = await gc.client.me.mail_folders.get(request_configuration=request_config)
         while response and response.value:
+            pages += 1
             for folder in response.value:
                 results.append(_folder_to_dict(folder))
+            if pages >= MAX_PAGES:
+                break
             if response.odata_next_link:
                 response = await gc.client.me.mail_folders.with_url(response.odata_next_link).get()
             else:
@@ -505,6 +510,8 @@ async def create_mail_folder(
     Returns:
         Created folder dict.
     """
+    if parent_folder_id:
+        validate_graph_id(parent_folder_id, "parent_folder_id")
     new_folder = MailFolder()
     new_folder.display_name = display_name
     try:

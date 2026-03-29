@@ -355,6 +355,7 @@ async def decline_event(gc: GraphClient, event_id: str, comment: str = "") -> No
 
 async def tentative_event(gc: GraphClient, event_id: str, comment: str = "") -> None:
     """Tentatively accept a meeting invitation."""
+    validate_graph_id(event_id, "event_id")
     body = TentativelyAcceptPostRequestBody()
     body.send_response = True
     body.comment = comment

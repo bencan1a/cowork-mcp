@@ -170,6 +170,63 @@ async def create_task(
 
 
 # ---------------------------------------------------------------------------
+# Update task
+# ---------------------------------------------------------------------------
+
+
+async def update_task(
+    gc: GraphClient,
+    task_id: str,
+    *,
+    list_id: str | None = None,
+    title: str | None = None,
+    due_date: str | None = None,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    """Update an existing task."""
+    validate_graph_id(task_id, "task_id")
+    resolved_list_id = await _resolve_list_id(gc, list_id)
+
+    task = TodoTask()
+    if title is not None:
+        task.title = title
+    if due_date is not None:
+        datetime.fromisoformat(due_date)  # validates format; raises ValueError if malformed
+        due_dt = DateTimeTimeZone()
+        due_dt.date_time = due_date
+        due_dt.time_zone = "UTC"
+        task.due_date_time = due_dt
+    if notes is not None:
+        body = ItemBody()
+        body.content = notes
+        body.content_type = BodyType.Text
+        task.body = body
+
+    try:
+        updated = await (
+            gc.client.me.todo.lists.by_todo_task_list_id(resolved_list_id)
+            .tasks.by_todo_task_id(task_id)
+            .patch(task)
+        )
+    except ODataError as exc:
+        raise wrap_odata_error(exc) from exc
+
+    if updated is None:
+        try:
+            fetched = await (
+                gc.client.me.todo.lists.by_todo_task_list_id(resolved_list_id)
+                .tasks.by_todo_task_id(task_id)
+                .get()
+            )
+        except ODataError as exc:
+            raise wrap_odata_error(exc) from exc
+        if fetched is None:
+            raise RuntimeError(f"Task {task_id!r} not found after update")
+        return _task_to_dict(fetched)
+    return _task_to_dict(updated)
+
+
+# ---------------------------------------------------------------------------
 # Complete task
 # ---------------------------------------------------------------------------
 
@@ -178,6 +235,7 @@ async def complete_task(
     gc: GraphClient, task_id: str, list_id: str | None = None
 ) -> dict[str, Any]:
     """Mark a task as completed."""
+    validate_graph_id(task_id, "task_id")
     resolved_list_id = await _resolve_list_id(gc, list_id)
 
     patch_task = TodoTask()
@@ -216,6 +274,7 @@ async def complete_task(
 
 async def delete_task(gc: GraphClient, task_id: str, list_id: str | None = None) -> None:
     """Delete a task by ID."""
+    validate_graph_id(task_id, "task_id")
     resolved_list_id = await _resolve_list_id(gc, list_id)
 
     try:
